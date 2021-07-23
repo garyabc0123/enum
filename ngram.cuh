@@ -14,6 +14,14 @@
 
 namespace ngramNameSpace {
 
+    struct array_in_texture{
+        cudaTextureObject_t texObj;
+        cudaArray_t cuArray;
+        int * devPtr;
+        size_t size;
+
+    };
+
     struct n_gram_struct {
         int *word;
         size_t *count;
@@ -45,6 +53,7 @@ namespace ngramNameSpace {
 
 
         array<int> string;
+        array_in_texture string_tex;
         std::map<unsigned short, n_gram_struct> n_gram_map;
         size_t top_pa;
 
@@ -58,6 +67,7 @@ namespace ngramNameSpace {
     namespace __init__ {
         namespace cal_one_gram {
             __global__ void cal_one_gram_kernel(array<int> string, array<size_t> onegram);
+            __global__ void cal_one_gram_kernel_texture(array_in_texture string, array<size_t> onegram);
         }
         namespace convert_to_standard_struct {
             __global__ void write_word(n_gram_struct input);
@@ -74,6 +84,8 @@ namespace ngramNameSpace {
         __global__ void write_word(n_gram_struct my_gram, n_gram_struct prev_gram, n_gram_struct one_gram);
 
         __global__ void add_on_table(n_gram_struct my_gram, array<int> string);
+        __global__ void add_on_table_texture(n_gram_struct my_gram, array_in_texture string);
+
     }
 
 

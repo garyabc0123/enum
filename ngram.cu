@@ -40,13 +40,54 @@ ngramNameSpace::ngram::ngram(std::wstring *input, size_t top_pa) {
         ret.size = end;
         return ret;
     };
-    auto func_cal_one_gram = [](array<int> string) -> array<size_t> {
+    auto func_load_to_texture = [=](std::wstring *input){
+        size_t end = input->size() - 1;
+        //GCC-11以下對於unicode編碼有長度bug...，要自己重新計算
+        for (; input->operator[](end) == input->operator[](input->size() - 1); end--) {
+            if (end == 0)
+                break;
+        }
+
+        string_tex.size = end;
+
+        cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<int>();
+
+        cudaMalloc(reinterpret_cast<void **>(&(string_tex.devPtr)), sizeof(int) * end);
+        catchError();
+        cudaMemcpy(string_tex.devPtr, input->c_str(), sizeof(int) * end, cudaMemcpyHostToDevice);
+        catchError();
+        cudaResourceDesc resDesc;
+        memset(&resDesc, 0, sizeof(resDesc));
+
+        resDesc.resType = cudaResourceTypeLinear;
+        resDesc.res.linear.devPtr = string_tex.devPtr;
+        resDesc.res.linear.desc = channelDesc;
+        resDesc.res.linear.sizeInBytes = sizeof(int) * end;
+
+        cudaTextureDesc texDesc;
+        memset(&texDesc, 0, sizeof(texDesc));
+        texDesc.addressMode[0] = cudaAddressModeWrap;
+        texDesc.filterMode = cudaFilterModePoint;
+        texDesc.readMode = cudaReadModeElementType;
+        texDesc.normalizedCoords = 0;
+
+        cudaCreateTextureObject(&(string_tex.texObj), &resDesc, &texDesc, NULL);
+        catchError();
+
+    };
+
+    auto func_cal_one_gram = [=]() -> array<size_t> {
         auto ret = alloc_unified<size_t>(0x2EBF0);
-        __init__::cal_one_gram::cal_one_gram_kernel<<<string.size / 1024 + 1, 1024>>>(string, ret);
+        if(string_tex.texObj){
+            __init__::cal_one_gram::cal_one_gram_kernel_texture<<<string_tex.size / 1024 + 1, 1024>>>(string_tex, ret);
+        }else{
+            __init__::cal_one_gram::cal_one_gram_kernel<<<string.size / 1024 + 1, 1024>>>(string, ret);
+        }
         cudaDeviceSynchronize();
         catchError();
         return ret;
     };
+
     auto func_convert_to_standard_struct = [=](array<size_t> onegram_temp) -> n_gram_struct {
         n_gram_struct onegram = alloc_n_gram_stuct(1, onegram_temp.size);
         n_gram_struct ret;
@@ -68,8 +109,10 @@ ngramNameSpace::ngram::ngram(std::wstring *input, size_t top_pa) {
     };
 
     this->top_pa = top_pa;
-    this->string = func_load_to_gpu(input);
-    auto onegram_temp = func_cal_one_gram(this->string);
+    //this->string = func_load_to_gpu(input);
+
+    func_load_to_texture(input);
+    auto onegram_temp = func_cal_one_gram();
     n_gram_map[1] = func_convert_to_standard_struct(onegram_temp);
 
 
@@ -77,7 +120,14 @@ ngramNameSpace::ngram::ngram(std::wstring *input, size_t top_pa) {
 }
 
 ngramNameSpace::ngram::~ngram() {
-    cudaFree(string.ptr);
+    if(string.ptr != nullptr && string.size != 0)
+        cudaFree(string.ptr);
+    if(string_tex.cuArray)
+        cudaFreeArray(string_tex.cuArray);
+    if(string_tex.devPtr)
+        cudaFree(string_tex.devPtr);
+    if(string_tex.texObj)
+        cudaDestroyTextureObject(string_tex.texObj);
     for (auto x : n_gram_map) {
         free_n_gram_struct(x.second);
     }
@@ -99,73 +149,7 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
         };
         //debug(my_gram);
     };
-    auto func_add_on_table = [=](n_gram_struct my_gram, array<int> string) {
-        auto kernel = [](n_gram_struct my_gram, array<int> string, size_t idx) {
-            auto equal = [=](size_t a, size_t b, n_gram_struct my_gram, array<int> string) -> bool {
-                for (auto i = 0; i < my_gram.gram; i++) {
-                    if (my_gram.word[a * my_gram.gram + i] != string.ptr[b + i])
-                        return false;
-                }
-                return true;
-            };
-            auto a_large_than_b = [=](size_t a, size_t b, n_gram_struct my_gram, array<int> string) -> bool {
-                for (auto i = 0; i < my_gram.gram; i++) {
-                    if (my_gram.word[a * my_gram.gram + i] < string.ptr[b + i]) {
-                        return false;
-                    }
-                    if (my_gram.word[a * my_gram.gram + i] > string.ptr[b + i]) {
-                        return true;
-                    }
-
-                }
-
-                return true;
-            };
-            auto a_small_than_b = [=](size_t a, size_t b, n_gram_struct my_gram, array<int> string) -> bool {
-                for (auto i = 0; i < my_gram.gram; i++) {
-                    if (my_gram.word[a * my_gram.gram + i] > string.ptr[b + i]) {
-                        return false;
-                    }
-                    if (my_gram.word[a * my_gram.gram + i] < string.ptr[b + i]) {
-                        return true;
-                    }
-                }
-                return true;
-            };
-
-
-            if (idx > string.size)
-                return;
-
-            size_t begin, end, middle;
-            begin = 0;
-            end = my_gram.word_count - 1;
-
-            while (end > begin) {
-                if (end - begin <= 1) {
-                    if (equal(end, idx, my_gram, string)) {
-                        my_gram.count[end]++;
-                    } else if (equal(begin, idx, my_gram, string)) {
-                        my_gram.count[begin]++;
-                    }
-                    return;
-                }
-                middle = (begin + end) / 2;
-                if (equal(middle, idx, my_gram, string)) {
-                    my_gram.count[middle]++;
-                    return;
-                } else if (a_large_than_b(middle, idx, my_gram, string)) {
-                    end = middle;
-                } else if (a_small_than_b(middle, idx, my_gram, string)) {
-                    begin = middle;
-                } else {
-
-                    printf("%d :%d\n", idx, middle);
-                    //assert(false) ;
-                }
-            }
-
-        };
+    auto func_add_on_table = [=](n_gram_struct my_gram, array<int> string, array_in_texture string_tex) {
         auto debug = [=](n_gram_struct my_gram) {
             for (auto i = 0; i < my_gram.word_count; i++) {
                 for (auto k = 0; k < my_gram.gram; k++)
@@ -175,8 +159,12 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
             }
         };
 
+        if(string_tex.texObj){
+            calculate::add_on_table_texture<<<string_tex.size / 512 + 1, 512>>>(my_gram, string_tex);
+        }else{
+            calculate::add_on_table<<<string.size / 1024 + 1, 1024>>>(my_gram, string);
+        }
 
-        calculate::add_on_table<<<string.size / 1024 + 1, 1024>>>(my_gram, string);
         cudaDeviceSynchronize();
 
 //        for(auto i = 0 ; i < string.size ; i++){
@@ -195,15 +183,19 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
     auto prev_gram = n_gram_map[n_gram - 1];
     auto my_gram = alloc_n_gram_stuct(n_gram, one_gram.word_count * prev_gram.word_count);
 
+    benchmark<void(void)>(std::bind(func_write_words, my_gram, prev_gram, one_gram), L"func_write_words");
+    //func_write_words(my_gram, prev_gram, one_gram);
 
-    func_write_words(my_gram, prev_gram, one_gram);
-    wcout << "b - 0 \n";
-    func_add_on_table(my_gram, string);
-    wcout << "b - 1 \n";
-    n_gram_map[n_gram] = merge_n_gram_struct_by_top(my_gram, top);
-    wcout << "b - 2 \n";
+
+    benchmark<void(void)>(std::bind(func_add_on_table, my_gram, string, string_tex), L"func_add_on_table");
+    //func_add_on_table(my_gram, string, string_tex);
+
+
+    n_gram_map[n_gram] = benchmark<n_gram_struct(void), n_gram_struct>(std::bind(&ngram::merge_n_gram_struct_by_top, this, my_gram, top), L"merge_n_gram");
+    //n_gram_map[n_gram] = merge_n_gram_struct_by_top(my_gram, top);
+
     free_n_gram_struct(my_gram);
-    wcout << "b - 3 \n";
+
 
 }
 
@@ -263,6 +255,17 @@ __global__ void ngramNameSpace::__init__::cal_one_gram::cal_one_gram_kernel(arra
     size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= string.size) return;
     auto prep = string.ptr[idx];
+    if (ifchinese(prep))
+        atomicAdd(reinterpret_cast<int *>(&(onegram.ptr[prep])), (int) 1);
+    return;
+}
+
+__global__ void ngramNameSpace::__init__::cal_one_gram::cal_one_gram_kernel_texture(array_in_texture string,
+                                                                                    array<size_t> onegram) {
+    size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx >= string.size) return;
+    auto prep = tex1Dfetch<int>(string.texObj, idx);
+
     if (ifchinese(prep))
         atomicAdd(reinterpret_cast<int *>(&(onegram.ptr[prep])), (int) 1);
     return;
@@ -386,4 +389,74 @@ __global__ void ngramNameSpace::calculate::add_on_table(n_gram_struct my_gram, a
         }
     }
 
+}
+
+__global__ void ngramNameSpace::calculate::add_on_table_texture(n_gram_struct my_gram, array_in_texture string) {
+    auto equal = [=] __device__(size_t a, size_t b, n_gram_struct my_gram, array_in_texture string) {
+        for (auto i = 0; i < my_gram.gram; i++) {
+            if (my_gram.word[a * my_gram.gram + i] != tex1Dfetch<int>(string.texObj, b + i))
+                return false;
+        }
+        return true;
+    };
+    auto a_large_than_b = [=] __device__(size_t a, size_t b, n_gram_struct my_gram, array_in_texture string) {
+        for (auto i = 0; i < my_gram.gram; i++) {
+            if (my_gram.word[a * my_gram.gram + i] < tex1Dfetch<int>(string.texObj, b + i)) {
+                return false;
+            }
+            if (my_gram.word[a * my_gram.gram + i] > tex1Dfetch<int>(string.texObj, b + i)) {
+                return true;
+            }
+        }
+        return true;
+    };
+    auto a_small_than_b = [=] __device__(size_t a, size_t b, n_gram_struct my_gram, array_in_texture string) {
+        for (auto i = 0; i < my_gram.gram; i++) {
+            if (my_gram.word[a * my_gram.gram + i] > tex1Dfetch<int>(string.texObj, b + i)) {
+                return false;
+            }
+            if (my_gram.word[a * my_gram.gram + i] < tex1Dfetch<int>(string.texObj, b + i)) {
+                return true;
+            }
+        }
+        return true;
+    };
+
+
+    size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx >= string.size)
+        return;
+
+    size_t begin, end, middle;
+    begin = 0;
+    end = my_gram.word_count - 1;
+
+    while (end > begin) {
+        if (end - begin <= 1) {
+            if (equal(end, idx, my_gram, string)) {
+                atomicAdd(reinterpret_cast<unsigned int *>(&(my_gram.count[end])), 1);
+            } else if (equal(begin, idx, my_gram, string)) {
+                atomicAdd(reinterpret_cast<unsigned int *>(&(my_gram.count[begin])), 1);
+            }
+            return;
+        }
+        middle = (begin + end) / 2;
+        if (equal(middle, idx, my_gram, string)) {
+            atomicAdd(reinterpret_cast<unsigned int *>(&(my_gram.count[middle])), 1);
+            return;
+        } else if (a_large_than_b(middle, idx, my_gram, string)) {
+            end = middle;
+        }
+//        else if(a_small_than_b(middle, idx, my_gram, string)){
+//            begin = middle;
+//        }else{
+//
+//            //printf("%d :%d\n",idx, middle);
+//            assert(false) ;
+//        }
+            //speed!
+        else {
+            begin = middle;
+        }
+    }
 }

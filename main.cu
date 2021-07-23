@@ -3,7 +3,7 @@
 #include "utility.cuh"
 #include "myThreadPool.cuh"
 #include "ngram.cuh"
-//./enumV8 /home/ascdc/solr.dat | tee $(date +'%Y%m%d:%H%M').txt
+//./enum /home/ascdc/solr200m.dat | tee $(date +'%Y%m%d:%H%M').txt
 
 
 int main(int argc, char **argv) {

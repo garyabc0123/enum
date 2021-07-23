@@ -46,7 +46,7 @@ array<myT> alloc_device(size_t size) {
 template<class myFunc, class returnType>
 returnType benchmark(std::function <myFunc> run, std::wstring name) {
     auto start = std::chrono::system_clock::now();
-    returnType ret = reinterpret_cast<returnType>(run());
+    returnType ret = run();
     auto end = std::chrono::system_clock::now();
     auto period1 = std::chrono::duration_cast < std::chrono::duration < double >> (end - start);
     wcout << L"function " << name << L" execute time : "
