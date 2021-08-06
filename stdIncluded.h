@@ -43,9 +43,10 @@
 #include "thrust/sequence.h"
 #include "thrust/scan.h"
 #include "thrust/execution_policy.h"
+#include "thrust/universal_vector.h"
 
-#include "boost/thread.hpp"
-#include "boost/asio.hpp"
+//#include "boost/thread.hpp"
+//#include "boost/asio.hpp"
 
 
 using std::wcout;

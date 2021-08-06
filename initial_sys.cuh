@@ -9,7 +9,7 @@
 
 void initLocale(std::locale);
 
-std::wstring readFile(std::locale, char *);
+auto readFile(std::locale, char *) -> std::wstring;
 
 
 #endif //ENUMV7_INITIAL_SYS_CUH

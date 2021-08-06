@@ -4,7 +4,9 @@
 
 #include "initial_sys.cuh"
 
-std::wstring readFile(std::locale loc, char *filepath) {
+
+//將檔案讀到stream
+auto readFile(std::locale loc, char *filepath) -> std::wstring{
     std::wfstream wfs;
     wfs.imbue(loc);
     wfs.open(filepath, std::fstream::in | std::fstream::binary);
@@ -23,6 +25,8 @@ std::wstring readFile(std::locale loc, char *filepath) {
     return orgStr;
 }
 
+
+//初始化std::locale
 void initLocale(std::locale utf8) {
     setlocale(LC_CTYPE, "");
     std::wcin.imbue(utf8);

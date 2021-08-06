@@ -4,20 +4,7 @@
 
 #include "utility.cuh"
 
-__host__ __device__ bool ifchinese2(int in) {
-    if (in < L'㐀')
-        return false; //U+3400
-    if (in >= L'！' && in <= L'～')
-        return false;
-    if (in >= L'￨' && in <= L'￮')
-        return false;
-    if (in == L'，')
-        return false;
-    if (in == L'。')
-        return false;
-    return true;
-}
-
+//by chen21019
 __host__ __device__ bool ifchinese(int tmpUCS4) {
     return (tmpUCS4 >= 0x4E00 && tmpUCS4 <= 0x62FF) ||
            (tmpUCS4 >= 0x6300 && tmpUCS4 <= 0x77FF) ||
@@ -59,6 +46,8 @@ __host__ __device__ bool ifchinese(int tmpUCS4) {
            (tmpUCS4 >= 0xAC00 && tmpUCS4 <= 0xD7AF);
 }
 
+
+//deprecated
 __host__ __device__  unsigned int utf32ChineseReCoding(unsigned int tmp) {
     unsigned int a = reCodeNotDef;
     if (tmp < 0x1100) {
@@ -104,6 +93,7 @@ __host__ __device__  unsigned int utf32ChineseReCoding(unsigned int tmp) {
     return a;
 }
 
+//deprecated
 __host__ __device__  unsigned int Reutf32ChineseReCoding(unsigned int tmp) {
     if (tmp == reCodeNotDef)
         return tmp;
@@ -127,6 +117,7 @@ __host__ __device__  unsigned int Reutf32ChineseReCoding(unsigned int tmp) {
 
 }
 
+//catch cuda error
 void catchError() {
     cudaError_t err;
     err = cudaGetLastError();

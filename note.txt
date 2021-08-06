@@ -1,0 +1,11 @@
+
+open -O2
+function one gram execute time : 2,212us
+function func_create_my_dict_and_cache execute time : 24,771us
+6,669function convert_to_resault execute time : 266,522us
+function two gram execute time : 572,004us
+
+close -O2
+function one gram execute time : 39,728us
+function func_create_my_dict_and_cache execute time : 27,252us
+1,879,970function convert_to_resault execute time : 9,942,496us
