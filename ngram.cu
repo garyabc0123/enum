@@ -118,7 +118,7 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
          * =>
          * |AA|AB|AC|AD|BA|BB| ... (top*2)^2
          */
-        thrust::universal_vector<bool> combinePairPred(top * top * 4);
+        thrust::universal_vector<bool> combinePairPred(top * top );
 
         //package
         array<unsigned int> prevGramSortKeyArr = {thrust::raw_pointer_cast(prevGramSort.result_key.data()),
@@ -126,7 +126,7 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
         array<bool> combinePairPredArr = {thrust::raw_pointer_cast(combinePairPred.data()), combinePairPred.size()};
 
         calculate::canCombineFunc<<<combinePairPredArr.size / 1024 + 1, 1024>>>(prevGramSortKeyArr, combinePairPredArr,
-            ngram - 1);
+                                                                                ngram - 1);
         cudaDeviceSynchronize();
         catchError();
 
@@ -136,12 +136,12 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
                 for (auto y = 0; y < prevGramSort.result_value.size(); y++) {
                     for (auto i = 0; i < ngram - 1; i++) {
                         std::wcout << static_cast<wchar_t >(prevGramSort.result_key[x + i *
-                                                                                        prevGramSort.result_value.size()]);
+                        prevGramSort.result_value.size()]);
                     }
                     std::wcout << " and ";
                     for (auto i = 0; i < ngram - 1; i++) {
                         std::wcout << static_cast<wchar_t >(prevGramSort.result_key[y + i *
-                                                                                        prevGramSort.result_value.size()]);
+                        prevGramSort.result_value.size()]);
                     }
                     std::wcout << ": ";
                     std::wcout << combinePairPred[x * prevGramSort.result_value.size() + y];
@@ -167,8 +167,8 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
         calculate::createCombinePair<<<combinePairScanArr.size / 1024 + 1, 1024>>>(combinePairPredArr, combinePairScanArr, prevGramSortKeyArr, combinePairArr, ngram);
         cudaDeviceSynchronize();
         catchError();
-        /*
-        for(auto idx = 0 ; idx < combinePairScanArr.size ; idx++){
+
+        /*for(auto idx = 0 ; idx < combinePairScanArr.size ; idx++){
             [](array<bool> pred, array<unsigned int> scan, array<unsigned int> in,
                     array<unsigned int> out, int ngram, size_t idx) {
                 size_t predShape = static_cast<size_t >(sqrt(static_cast<float>(pred.size)));
@@ -199,7 +199,7 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
          */
 
 
-        //TODO func 把按頻率排序轉成按字元排序
+        //func 把按頻率排序轉成按字元排序
         //CPU version
         auto sortByUnicodeID = [](thrust::universal_vector<unsigned int> combinePair, int ngram){
             size_t pairSize = combinePair.size() / ngram;
@@ -237,7 +237,27 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
         return {combinePair, combinePairCache};
 
 
-    };\
+    };
+
+    //delete elements which value is 0
+    auto merge = [](resultSOA in, int ngram) -> resultSOA{
+        auto prev = 0;
+        thrust::universal_vector<unsigned int> out(in.result_key.size());
+        for(auto i = 0 ; i < ngram ; i++){
+            prev = thrust::copy_if(thrust::device, in.result_key.begin() + i * in.result_value.size(), in.result_key.begin() + (i + 1) * in.result_value.size() , in.result_value.begin(), out.begin() + prev, isAboveTh{1}) - out.begin();
+        }
+        in.result_value.resize(thrust::copy_if(thrust::device, in.result_value.begin(), in.result_value.end(), in.result_value.begin(), isAboveTh{1}) - in.result_value.begin());
+        out.resize(prev);
+        [=](){
+            for(auto it = 0 ; it < in.result_value.size() ; it++){
+                for(auto itt = 0 ; itt < ngram ; itt++){
+                    wcout << static_cast<wchar_t >(out[it + itt * in.result_value.size()]);
+                }
+                std::wcout << ": " << in.result_value[it] << endl;
+            }
+        };
+        return {out, in.result_value};
+    };
 
     auto func_sort = [](resultSOA in, int ngram) -> resultSOA{
         auto outVal(in.result_value);
@@ -381,7 +401,7 @@ void ngramNameSpace::ngram::calculate(int n_gram, size_t top) {
         }
     };
 
-    result_nonSort[n_gram] = {key, val};
+    result_nonSort[n_gram] = merge({key, val}, n_gram);
 
     result_sort[n_gram] = func_sort(result_nonSort[n_gram], n_gram);
 
@@ -425,7 +445,7 @@ void ngramNameSpace::ngram::calculateOneGram(size_t top) {
 
     auto debug = [=]() {
         for (auto it = result_sort[1].result_key.begin(), it2 = result_sort[1].result_value.begin();
-             it != result_sort[1].result_key.end() && it2 != result_sort[1].result_value.end(); it++, it2++) {
+        it != result_sort[1].result_key.end() && it2 != result_sort[1].result_value.end(); it++, it2++) {
             wcout << static_cast<wchar_t >(*it) << ": " << *it2 << endl;
         }
     };
@@ -440,7 +460,7 @@ void ngramNameSpace::ngram::calculateTwoGram(size_t top) {
 
     //https://imgur.com/a/20FTpUU
     auto func_create_my_dict_and_cache = [](size_t threshold,
-                                            thrust::universal_vector<unsigned int> dictBook) -> std::tuple<thrust::universal_vector<int>, thrust::universal_vector<unsigned int>> {
+            thrust::universal_vector<unsigned int> dictBook) -> std::tuple<thrust::universal_vector<int>, thrust::universal_vector<unsigned int>> {
 
         thrust::universal_vector<int> twoGramDict(dictBook.size());
         // -1 : not exist
@@ -459,7 +479,7 @@ void ngramNameSpace::ngram::calculateTwoGram(size_t top) {
 
     };
     auto debug = [=](thrust::universal_vector<int> twoGramDict, thrust::universal_vector<unsigned int> twoGramDictCache,
-                     thrust::universal_vector<unsigned int> myMap) {
+            thrust::universal_vector<unsigned int> myMap) {
         for (auto it1 = twoGramDict.begin(); it1 != twoGramDict.end(); it1++) {
             for (auto it2 = twoGramDict.begin(); it2 != twoGramDict.end(); it2++) {
                 wcout << static_cast<wchar_t >(*it1);
@@ -476,8 +496,8 @@ void ngramNameSpace::ngram::calculateTwoGram(size_t top) {
     //將稀疏矩陣轉換成resultSOA (CSR format)
     //https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format)
     auto func_convert_to_result = [](thrust::universal_vector<int> twoGramDict,
-                                 thrust::universal_vector<unsigned int> twoGramDictCache,
-                                 thrust::universal_vector<unsigned int> myMap) -> resultSOA {
+            thrust::universal_vector<unsigned int> twoGramDictCache,
+            thrust::universal_vector<unsigned int> myMap) -> resultSOA {
 
         thrust::universal_vector<unsigned int> scan(myMap.size());
         thrust::universal_vector<bool> pred(myMap.size());
@@ -498,7 +518,7 @@ void ngramNameSpace::ngram::calculateTwoGram(size_t top) {
         array<unsigned int> valArr = {thrust::raw_pointer_cast(val.data()), val.size()};
 
         calculate::DenseMatrix2CSR<<<myMap.size() / 1024 +
-                                     1, 1024>>>(twoGramDictArr, myMapArr, scanArr, predArr, keyArr, valArr, newSize);
+        1, 1024>>>(twoGramDictArr, myMapArr, scanArr, predArr, keyArr, valArr, newSize);
         cudaDeviceSynchronize();
         catchError();
 
@@ -565,7 +585,7 @@ void ngramNameSpace::ngram::calculateTwoGram(size_t top) {
 
 
     calculate::calculateTwo<<<stringArr.size / 1024 +
-                              1, 1024>>>(stringArr, twoGramDictArr, twoGramDictCacheArr, myMapArr);
+    1, 1024>>>(stringArr, twoGramDictArr, twoGramDictCacheArr, myMapArr);
     cudaDeviceSynchronize();
     catchError();
 
@@ -705,6 +725,8 @@ __global__ void
 ngramNameSpace::calculate::createCombinePair(array<bool> pred, array<unsigned int> scan, array<unsigned int> in,
                                              array<unsigned int> out, int ngram) {
     size_t idx = threadIdx.x + blockDim.x * blockIdx.x;
+    if(idx >= pred.size)
+        return;
     size_t predShape = static_cast<size_t >(sqrt(static_cast<float>(pred.size)));
     size_t x = idx / predShape;
     size_t y = idx % predShape;
